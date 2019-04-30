@@ -1,29 +1,33 @@
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.manifold import TSNE
 import numpy as np
 import matplotlib.pyplot as plt
 
-class ZSLPrediction(Object)
+class ZSLPrediction(object):
     
     def __init__(self, train_cls, test_cls, word2vec='spacy'):
 
         self.train_cls = train_cls #num_train_cls
         self.test_cls = test_cls   #num_test_cls
+        self.nlp = None
+
         #Calculate word embeddings of train and test class
 
         self.train_word_embeddings = self._to_embeddings(train_cls, word2vec) #num_train_cls x embedding dim
         self.test_word_embeddings = self._to_embeddings(test_cls, word2vec) #num_test_cls x embedding dim
 
+
     def _to_embeddings(self, list_of_string, word2vec):
         if word2vec == 'spacy':
-            import os 
-            os.system('python -m spacy download en_core_web_sm')
-            import spacy
-            nlp = spacy.load("en_core_web_sm")
+            if self.nlp is None:
+                import os 
+                os.system('python -m spacy download en_core_web_sm')
+                import spacy
+                self.nlp = spacy.load("en_core_web_sm")
 
             list_of_embeddings = []
             for each_word in list_of_string:
-                embedding = nlp(each_word).vector() 
+                embedding = self.nlp(each_word).vector
                 list_of_embeddings.append(embedding)
             return np.vstack(list_of_embeddings)
         elif word2vec == 'gensim':
@@ -102,9 +106,9 @@ class ZSLPrediction(Object)
         """
         anchors = self._get_anchors(all_test_features, all_test_label, sample_num, sample_ratio)
 
-        self.nn = NearestNeighbors(n_neighbors = k, metric = metric)
+        self.nn = KNeighborsClassifier(n_neighbors = k, metric = metric)
         features, label = anchors
-        self.nn.fit(features)
+        self.nn.fit(features, label.squeeze())
         self.anchors_label = label
 
     def nn_predict(self, features):
@@ -114,8 +118,8 @@ class ZSLPrediction(Object)
                 visual feature to predict
                 size: N x feature_size 
         """
-        dists, neighbors = self.nn.kneighbors(features)
-        return self.anchors_label[neighbors]
+        prediction = self.nn.predict(features)
+        return prediction
 
     def tSNE_visualization(self, features, labels, mode='test'):
         """
@@ -138,7 +142,7 @@ class ZSLPrediction(Object)
 
         transformed_features = TSNE(n_components=2).fit_transform(features)
 
-        colors = label.astype(np.float)/num_class
+        colors = labels.astype(np.float)/num_class
 
         fig, ax = plt.subplots()
         s = plt.scatter(transformed_features[:,0], transformed_features[:,1], c=colors, cmap='jet')
@@ -176,7 +180,8 @@ class ZSLPrediction(Object)
         anchors_label = []
 
         for i in range(self.num_test_cls()):
-            valid_index = np.nonzero(np.all_test_label == i)[0]
+            valid_index = np.nonzero(all_test_label == i)[0]
+            print(valid_index)
             num_index = len(valid_index)
 
             select_index = np.random.permutation(num_index)
@@ -186,12 +191,28 @@ class ZSLPrediction(Object)
             else:
                 num_select = sample_num 
 
-                select_index = select_index[:num_index]
-
-                anchors.append(all_test_features[select_index,:])
-                anchors_label.append(all_test_label[select_index,:])
-
+            select_index = select_index[:num_index]
+            # print(select_index)
+            anchors.append(all_test_features[valid_index[select_index],:])
+            anchors_label.append(all_test_label[valid_index[select_index],:])
         return np.vstack(anchors), np.vstack(anchors_label)
 
 
 
+if __name__ =='__main__':
+    train_cls = ['a', 'b','e']
+    test_cls = ['c', 'd']
+    zsl = ZSLPrediction(train_cls, test_cls)
+    print(zsl.train_word_embeddings.shape)
+    print(zsl.test_word_embeddings.shape)
+
+    pred = zsl.conse_wordembedding_predict(np.array([[0,0,1],[1,0,0],[0,1,0],[1,0,0]]))
+    print(pred)
+
+    zsl.construct_nn(np.array([[1,0],[2,0],[3,0],[4,0],[5,0],[6,0]]), np.array([0,1,0,1,0,1]).reshape(-1,1), k = 1, metric = 'minkowski',\
+                        sample_num = 5, sample_ratio = None)
+
+    pred = zsl.nn_predict(np.array([[1,0],[2,0],[3,0],[4,0],[5,0],[6,0]]))
+    print(pred)
+
+    zsl.tSNE_visualization(np.array([[1,0],[2,0],[3,0]]), np.array([0,1,0]))
