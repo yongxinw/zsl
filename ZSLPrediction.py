@@ -1,3 +1,6 @@
+from __future__ import unicode_literals
+import matplotlib
+matplotlib.use('agg')
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.manifold import TSNE
 import numpy as np
@@ -10,6 +13,9 @@ class ZSLPrediction(object):
         self.train_cls = train_cls #num_train_cls
         self.test_cls = test_cls   #num_test_cls
         self.nlp = None
+
+        # self.train_cls = [x.decode('utf-8') for x in self.train_cls]
+        # self.test_cls = [x.decode('utf-8') for x in self.test_cls]
 
         #Calculate word embeddings of train and test class
 
@@ -27,7 +33,7 @@ class ZSLPrediction(object):
 
             list_of_embeddings = []
             for each_word in list_of_string:
-                embedding = self.nlp(each_word).vector
+                embedding = self.nlp(each_word.decode('utf-8')).vector
                 list_of_embeddings.append(embedding)
             return np.vstack(list_of_embeddings)
         elif word2vec == 'gensim':
@@ -121,7 +127,7 @@ class ZSLPrediction(object):
         prediction = self.nn.predict(features)
         return prediction
 
-    def tSNE_visualization(self, features, labels, mode='test'):
+    def tSNE_visualization(self, features, labels, mode='test', file_name='tSNE.png'):
         """
         Input:
             features:
@@ -149,7 +155,8 @@ class ZSLPrediction(object):
         CB = fig.colorbar(s)
         CB.set_ticks(np.linspace(0,num_class-1,num_class)/num_class)
         CB.ax.set_yticklabels(class_to_use)
-        plt.show()
+        print(class_to_use)
+        plt.savefig(file_name)
 
 
     #Helper function for getting sample of features
