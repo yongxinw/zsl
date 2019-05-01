@@ -22,6 +22,10 @@ from utils import log_density_igaussian
 from models import AutoEncoder, Discriminator
 from dataset import CUBDataset
 
+from sklearn.neighbors import NearestNeighbors
+
+from scipy.misc import imsave
+
 class Tester(object):
     def __init__(self, args):
         super(Tester, self).__init__()
@@ -38,9 +42,12 @@ class Tester(object):
 
         self.train_dataset = CUBDataset(split='train')
         self.test_dataset = CUBDataset(split='test')
+        self.val_dataset = CUBDataset(split = 'val')
+
 
         self.train_loader = DataLoader(dataset=self.train_dataset, batch_size=args.batch_size)
         self.test_loader = DataLoader(dataset=self.test_dataset, batch_size=args.batch_size)
+        self.val_loader = DataLoader(dataset=self.val_dataset, batch_size=100,shuffle=True)
 
         train_cls = self.train_dataset.get_classes('train')
         test_cls = self.test_dataset.get_classes('test')
@@ -57,6 +64,7 @@ class Tester(object):
     def conse_prediction(self, mode = 'test'):
         def pred(recon_x, z_tilde, output):
             cls_score = output.detach().cpu().numpy() 
+            print(cls_score)
             pred = self.zsl.conse_wordembedding_predict(cls_score, self.args.conse_top_k)
             return pred
 
@@ -66,10 +74,13 @@ class Tester(object):
 
             target = self.result[mode + '_label']
             pred = self.result[mode + '_pred']
-
+            print(target)
+            print(pred)
             acc = np.sum(target == pred)
+            print(acc)
             total = target.shape[0]
-            return acc/total
+            print(total)
+            return acc/float(total)
         else:
             raise NotImplementedError
 
@@ -79,20 +90,28 @@ class Tester(object):
         if (mode+'_feature') in self.result:
             features = self.result[mode+'_feature']
             labels = self.result[mode+'_label']
+            print(labels)
             self.zsl.construct_nn(features, labels, k = 5, metric = 'cosine', sample_num = 5)
             pred = self.zsl.nn_predict(features)
 
-            acc = np.sum(target == pred)
-            total = target.shape[0]
+            acc = np.sum(labels == pred)
+            total = labels.shape[0]
 
-            return acc/total
+            return acc/float(total)
         else:
             raise NotImplementedError
 
     def tSNE(self, mode='train'):
         self.get_features(mode= mode, pred_func = None)
-        self.zsl.tSNE_visualization(self.result[mode+'_feature'], \
-                                    self.result[mode+'_label'], \
+
+        total_num = self.result[mode+'_feature'].shape[0]
+
+        random_index = np.random.permutation(total_num)
+
+        random_index = random_index[:30]
+
+        self.zsl.tSNE_visualization(self.result[mode+'_feature'][random_index,:], \
+                                    self.result[mode+'_label'][random_index], \
                                     mode=mode,
                                     file_name= self.args.tsne_out)
 
@@ -100,7 +119,10 @@ class Tester(object):
 
     def get_features(self, mode = 'test', pred_func = None):
         self.model.eval()
-        if (mode + '_feature') in self.result:
+        if pred_func is None and (mode + '_feature') in self.result:
+            print("Use cached result")
+            return 
+        if pred_func is not None and (mode + '_pred') in self.result:
             print("Use cached result")
             return 
 
@@ -114,11 +136,11 @@ class Tester(object):
         all_label = []
         all_pred = []
 
-        for idx, data in enumerate(loader):
-            if idx == 3:
-                break
+        for data in tqdm(loader):
+            # if idx == 3:
+            #     break
 
-            images = Variable(data['image64'].cuda())
+            images = Variable(data['image64_crop'].cuda())
             target = Variable(data['class_id'].cuda())
 
             recon_x, z_tilde, output = self.model(images)
@@ -143,12 +165,54 @@ class Tester(object):
         print(self.result[mode + '_feature'].shape)
         print(self.result[mode + '_label'].shape)
 
-    
+    def validation_recon(self):
+        self.model.eval()
+        for idx, data in enumerate(self.val_loader):
+            if idx == 1:
+                break
+
+            images = Variable(data['image64_crop'].cuda())
+            recon_x, z_tilde, output = self.model(images)
+
+            all_recon_images = recon_x.detach().cpu().numpy() #N x 3 x 64 x 64
+            all_origi_images = data['image64_crop'].numpy() #N x 3 x 64 x 64
+
+            for i in range(all_recon_images.shape[0]):
+                imsave('./recon/recon' + str(i) + '.png', np.transpose(np.squeeze(all_origi_images[i,:,:,:]),[1, 2, 0]))
+                imsave('./recon/orig' + str(i) + '.png', np.transpose(np.squeeze(all_recon_images[i,:,:,:]),[1, 2, 0]))
 
 
 
+    def test_nn_image(self):
+        self.get_features(mode = 'test', pred_func = None)
+        self.get_features(mode = 'train', pred_func = None)
+        
+        N = 100
+        random_index = np.random.permutation(self.result['test_feature'].shape[0])[:N]
+
+        from sklearn.neighbors import NearestNeighbors
+
+        neigh = NearestNeighbors()
+        neigh.fit(self.result['train_feature'])
+
+        test_feature = self.result['test_feature'][random_index,:]
+        _, pred_index = neigh.kneighbors(test_feature,1)
 
 
+        for i in range(N):
+            test_index = random_index[i]
+
+            data = self.test_dataset[test_index]
+            image = data['image64_crop'].numpy() #1 x 3 x 64 x 64
+            print(image.shape)
+            imsave('./nn_image/test' + str(i) + '.png', np.transpose(np.squeeze(image),[1, 2, 0]))
+
+            train_index = pred_index[i][0]
+            print(train_index)
+            data = self.train_dataset[train_index]
+            image = data['image64_crop'].numpy() #1 x 3 x 64 x 64
+            print(image.shape)
+            imsave('./nn_image/train' + str(i) + '.png', np.transpose(np.squeeze(image),[1, 2, 0]))
 
 
 if __name__ == '__main__':
@@ -180,8 +244,19 @@ if __name__ == '__main__':
 
 
     tester = Tester(args)
-    tester.tSNE(mode = 'test')
-    # print('conse acc:' + tester.conse_prediction('test'))
-    # print('knn acc:' + tester.knn_prediction('test'))
+    print("Prediction on test set")
+    print('conse acc:')
+    print(tester.conse_prediction('test'))
+    # print('knn acc:')
+    # print(tester.knn_prediction('test'))
+
+    # print("tSNE on train")
+    # tester.tSNE(mode = 'train')
+
+    # tester.test_nn_image()  
+
+    tester.validation_recon()  
+
+
 
 

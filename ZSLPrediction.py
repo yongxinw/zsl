@@ -63,10 +63,10 @@ class ZSLPrediction(object):
         assert self.test_word_embeddings is not None, "Need word2vec first"
 
         num_samples = score.shape[0]
-        if topN is not None:
-            belowN_index = np.argsort(score, axis = 1)[::-1][:,topN:] #sort score 
-            for i in range(num_samples):
-                score[i,belowN_index] = 0
+        # if topN is not None:
+        #     belowN_index = np.argsort(score, axis = 1)[::-1][:,topN:] #sort score 
+        #     for i in range(num_samples):
+        #         score[i,belowN_index] = 0
         convex_vector = score.dot(self.train_word_embeddings) #N x embedding dim
 
         def _cos_sim_cls(v):
@@ -74,6 +74,7 @@ class ZSLPrediction(object):
 
         similarity = np.apply_along_axis(_cos_sim_cls, 1, convex_vector)
         prediction = np.argmax(similarity, axis = 1)
+        prediction += self.num_train_cls()
 
         return prediction
 
@@ -125,6 +126,7 @@ class ZSLPrediction(object):
                 size: N x feature_size 
         """
         prediction = self.nn.predict(features)
+        print(prediction)
         return prediction
 
     def tSNE_visualization(self, features, labels, mode='test', file_name='tSNE.png'):
@@ -148,14 +150,14 @@ class ZSLPrediction(object):
 
         transformed_features = TSNE(n_components=2).fit_transform(features)
 
-        colors = labels.astype(np.float)/num_class
-
+        colors = labels.astype(np.float)/float(num_class)
+        # print(colors)
         fig, ax = plt.subplots()
         s = plt.scatter(transformed_features[:,0], transformed_features[:,1], c=colors, cmap='jet')
-        CB = fig.colorbar(s)
-        CB.set_ticks(np.linspace(0,num_class-1,num_class)/num_class)
-        CB.ax.set_yticklabels(class_to_use)
-        print(class_to_use)
+        # CB = fig.colorbar(s)
+        # CB.set_ticks(np.linspace(0,num_class-1,num_class)/num_class)
+        # CB.ax.set_yticklabels(class_to_use)
+        # print(class_to_use)
         plt.savefig(file_name)
 
 
@@ -186,9 +188,9 @@ class ZSLPrediction(object):
         anchors = []
         anchors_label = []
 
-        for i in range(self.num_test_cls()):
+        for i in range(self.num_train_cls(), self.num_train_cls()+self.num_test_cls()):
             valid_index = np.nonzero(all_test_label == i)[0]
-            print(valid_index)
+            # print(np.nonzero(all_test_label == i))
             num_index = len(valid_index)
 
             select_index = np.random.permutation(num_index)
@@ -201,8 +203,8 @@ class ZSLPrediction(object):
             select_index = select_index[:num_index]
             # print(select_index)
             anchors.append(all_test_features[valid_index[select_index],:])
-            anchors_label.append(all_test_label[valid_index[select_index],:])
-        return np.vstack(anchors), np.vstack(anchors_label)
+            anchors_label.append(all_test_label[valid_index[select_index]])
+        return np.vstack(anchors), np.hstack(anchors_label)
 
 
 
